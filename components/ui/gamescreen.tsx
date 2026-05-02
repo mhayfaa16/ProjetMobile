@@ -29,18 +29,6 @@ const getFinalMessage = (totalPops: number) => {
   return "🐌 Slow poke! Try again! 🐌";
 };
 
-// Dynamic popping messages
-/*const poppingMessages = [
-  "Pop! ",
-  "Got one! ",
-  "Nice! ",
-  "Keep going! ",
-  "You're on fire! ",
-  "Delicious! ",
-  "Another one! ",
-  "Fast fingers! ",
-];
-*/
 type Item = {
   id: number;
   x: number;
@@ -98,13 +86,47 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
     return positions;
   };
 
-  // Countdown before game starts
+  // Function to stop the timer
+  const stopTimer = () => {
+    if (timerInterval.current) {
+      clearInterval(timerInterval.current);
+      timerInterval.current = null;
+    }
+  };
+
+  // Function to start the timer
+  const startTimer = () => {
+    stopTimer(); // Clear any existing timer first
+
+    timerInterval.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          // Time's up
+          stopTimer();
+          setGameActive(false);
+          setShowResultPopup(true);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  // Initial countdown before game starts
   useEffect(() => {
     if (countdown > 0) {
       const id = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
       return () => clearTimeout(id);
+    } else if (
+      countdown === 0 &&
+      !gameActive &&
+      !isPaused &&
+      resumeCountdown === 0
+    ) {
+      // Initial countdown finished, start the game and timer
+      setGameActive(true);
+      startTimer();
     }
-    setGameActive(true);
   }, [countdown]);
 
   // Resume countdown effect
@@ -112,130 +134,49 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
     if (resumeCountdown > 0) {
       const id = setTimeout(() => setResumeCountdown((prev) => prev - 1), 1000);
       return () => clearTimeout(id);
-    } else if (
-      resumeCountdown === 0 &&
-      isPaused === false &&
-      gameActive === false
-    ) {
+    } else if (resumeCountdown === 0 && !gameActive && isPaused === false) {
+      // Resume countdown finished, restart the game and timer
       setGameActive(true);
+      startTimer();
     }
-  }, [resumeCountdown, isPaused, gameActive]);
+  }, [resumeCountdown]);
 
-  // Timer effect - show results when time runs out
+  // Clean up timer when game becomes inactive
   useEffect(() => {
-    if (gameActive && timeLeft > 0 && !isPaused) {
-      timerInterval.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            // Time's up
-            clearInterval(timerInterval.current!);
-            setGameActive(false);
-            setShowResultPopup(true);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    if (!gameActive) {
+      stopTimer();
     }
+  }, [gameActive]);
 
-    return () => {
-      if (timerInterval.current) {
-        clearInterval(timerInterval.current);
-      }
-    };
-  }, [gameActive, isPaused]);
-
-  // Handle pause/resume
-  useEffect(() => {
-    if (isPaused) {
-      itemTimeouts.current.forEach((timeoutId) => {
-        clearTimeout(timeoutId);
-      });
-    } else if (gameActive && !isPaused && items.length > 0) {
-      itemTimeouts.current.forEach((timeoutId) => {
-        clearTimeout(timeoutId);
-      });
-      itemTimeouts.current.clear();
-
-      items.forEach((item) => {
-        const timeoutId = setTimeout(() => {
-          setItems((prev) => prev.filter((i) => i.id !== item.id));
-          itemTimeouts.current.delete(item.id);
-        }, 2000);
-        itemTimeouts.current.set(item.id, timeoutId);
-      });
+  // Handle pause - stop timer and game
+  const handlePause = () => {
+    if (gameActive && !isPaused) {
+      stopTimer();
+      setIsPaused(true);
+      setShowPausePopup(true);
+      setGameActive(false);
     }
+  };
 
-    return () => {
-      itemTimeouts.current.forEach((timeoutId) => {
-        clearTimeout(timeoutId);
-      });
-    };
-  }, [isPaused, gameActive]);
+  // Handle resume - start countdown
+  const handleResume = () => {
+    setShowPausePopup(false);
+    setIsPaused(false);
+    setResumeCountdown(3);
+  };
 
-  // Spawn popcorns
-  useEffect(() => {
-    if (!gameActive || isPaused || countdown > 0) return;
-
-    const interval = setInterval(() => {
-      setItems((currentItems) => {
-        const availablePositions = getAvailableGridPositions(currentItems);
-
-        if (availablePositions.length === 0) {
-          return currentItems;
-        }
-
-        let updatedItems = [...currentItems];
-        const spawnCount = 4;
-
-        for (let i = 0; i < spawnCount && availablePositions.length > 0; i++) {
-          const randomIndex = Math.floor(
-            Math.random() * availablePositions.length,
-          );
-          const position = availablePositions.splice(randomIndex, 1)[0];
-
-          const randomImage =
-            popcornImages[Math.floor(Math.random() * popcornImages.length)];
-
-          const newItem: Item = {
-            id: Date.now() + i,
-            x: position.x,
-            y: position.y + 30,
-            image: randomImage,
-          };
-
-          updatedItems.push(newItem);
-
-          const timeoutId = setTimeout(() => {
-            setItems((prev) => prev.filter((item) => item.id !== newItem.id));
-            itemTimeouts.current.delete(newItem.id);
-          }, 2000);
-
-          itemTimeouts.current.set(newItem.id, timeoutId);
-        }
-
-        return updatedItems;
-      });
-    }, 700);
-
-    return () => clearInterval(interval);
-  }, [gameActive, isPaused, countdown]);
-
+  // Handle item press (pop popcorn)
   const handlePress = (item: Item) => {
-    if (!gameActive || isPaused || countdown > 0) return;
+    if (!gameActive || isPaused || countdown > 0 || resumeCountdown > 0) return;
 
     const newScore = score + 1;
     setScore(newScore);
 
-    // Show random popping message with current score
-    //const randomMessage =
-    //poppingMessages[Math.floor(Math.random() * poppingMessages.length)];
-    //setMessage(`${randomMessage} (${newScore})`);
-
+    // Show message
+    setMessage(`Pop! ${newScore}`);
     if (messageTimeout.current) {
       clearTimeout(messageTimeout.current);
     }
-
     messageTimeout.current = setTimeout(() => {
       setMessage("");
     }, 600);
@@ -250,21 +191,72 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
     setItems((prev) => prev.filter((i) => i.id !== item.id));
   };
 
-  const handlePause = () => {
-    if (gameActive && !isPaused) {
-      setIsPaused(true);
-      setShowPausePopup(true);
-    }
-  };
+  // Handle item timeouts (auto-remove items after 2 seconds)
+  useEffect(() => {
+    if (!gameActive || isPaused || countdown > 0 || resumeCountdown > 0) return;
 
-  const handleResume = () => {
-    setShowPausePopup(false);
-    setIsPaused(false);
-    setGameActive(false);
-    setResumeCountdown(3);
-  };
+    // Set up timeouts for existing items
+    items.forEach((item) => {
+      if (!itemTimeouts.current.has(item.id)) {
+        const timeoutId = setTimeout(() => {
+          setItems((prev) => prev.filter((i) => i.id !== item.id));
+          itemTimeouts.current.delete(item.id);
+        }, 2000);
+        itemTimeouts.current.set(item.id, timeoutId);
+      }
+    });
 
+    return () => {
+      itemTimeouts.current.forEach((timeoutId) => {
+        clearTimeout(timeoutId);
+      });
+    };
+  }, [items, gameActive, isPaused, countdown, resumeCountdown]);
+
+  // Spawn popcorns
+  useEffect(() => {
+    if (!gameActive || isPaused || countdown > 0 || resumeCountdown > 0) return;
+
+    const spawnInterval = setInterval(() => {
+      setItems((currentItems) => {
+        const availablePositions = getAvailableGridPositions(currentItems);
+
+        if (availablePositions.length === 0) {
+          return currentItems;
+        }
+
+        let updatedItems = [...currentItems];
+        const spawnCount = Math.min(4, availablePositions.length);
+
+        for (let i = 0; i < spawnCount; i++) {
+          const randomIndex = Math.floor(
+            Math.random() * availablePositions.length,
+          );
+          const position = availablePositions.splice(randomIndex, 1)[0];
+
+          const randomImage =
+            popcornImages[Math.floor(Math.random() * popcornImages.length)];
+
+          const newItem: Item = {
+            id: Date.now() + i + Math.random(),
+            x: position.x,
+            y: position.y + 30,
+            image: randomImage,
+          };
+
+          updatedItems.push(newItem);
+        }
+
+        return updatedItems;
+      });
+    }, 700);
+
+    return () => clearInterval(spawnInterval);
+  }, [gameActive, isPaused, countdown, resumeCountdown]);
+
+  // Reset game
   const resetGame = () => {
+    stopTimer();
     setScore(0);
     setTimeLeft(30);
     setShowResultPopup(false);
@@ -275,19 +267,20 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
     setCountdown(3);
     setIsPaused(false);
     setResumeCountdown(0);
-    if (timerInterval.current) {
-      clearInterval(timerInterval.current);
-    }
+
     itemTimeouts.current.forEach((timeoutId) => {
       clearTimeout(timeoutId);
     });
     itemTimeouts.current.clear();
+
+    if (messageTimeout.current) {
+      clearTimeout(messageTimeout.current);
+    }
   };
 
+  // Home button press
   const handleHomePress = () => {
-    if (timerInterval.current) {
-      clearInterval(timerInterval.current);
-    }
+    stopTimer();
     itemTimeouts.current.forEach((timeoutId) => {
       clearTimeout(timeoutId);
     });
@@ -334,7 +327,7 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
       </View>
 
       {/* Initial Countdown */}
-      {countdown > 0 && !resumeCountdown && (
+      {countdown > 0 && resumeCountdown === 0 && (
         <View style={styles.countdownContainer}>
           <Text style={styles.countdownText}>{countdown}</Text>
         </View>
@@ -398,7 +391,7 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
         </View>
       </Modal>
 
-      {/* Result Popup Modal - Shows total pops when time runs out */}
+      {/* Result Popup Modal */}
       <Modal
         transparent={true}
         visible={showResultPopup}
