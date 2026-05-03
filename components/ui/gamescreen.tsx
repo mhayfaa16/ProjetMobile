@@ -12,7 +12,6 @@ import { styles } from "./styles";
 
 const { width, height } = Dimensions.get("window");
 
-// 🎨 popcorn variations
 const popcornImages = [
   require("../../assets/images/popcorn.png"),
   require("../../assets/images/popcorn2.png"),
@@ -20,7 +19,6 @@ const popcornImages = [
   require("../../assets/images/popcorn4.png"),
 ];
 
-// 💬 messages based on total pops at the end
 const getFinalMessage = (totalPops: number) => {
   if (totalPops >= 100) return " INSANE! You're a popping machine! ";
   if (totalPops >= 70) return " Great job! That's impressive! ";
@@ -50,7 +48,8 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
   const [countdown, setCountdown] = useState(3);
   const [isPaused, setIsPaused] = useState(false);
   const [showPausePopup, setShowPausePopup] = useState(false);
-  const [resumeCountdown, setResumeCountdown] = useState(0);
+  // ✅ Start at -1 so the effect is inert on mount
+  const [resumeCountdown, setResumeCountdown] = useState(-1);
 
   const messageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -58,7 +57,6 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
     new Map(),
   );
 
-  // Grid system for popcorn spawning
   const gridSize = 90;
   const topMargin = 180;
   const bottomMargin = 350;
@@ -67,7 +65,6 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
 
   const getAvailableGridPositions = (existingItems: Item[]) => {
     const positions: { x: number; y: number }[] = [];
-
     for (let x = leftMargin; x < width - rightMargin; x += gridSize) {
       for (let y = topMargin; y < height - bottomMargin; y += gridSize) {
         const isFarEnough = existingItems.every((item) => {
@@ -76,187 +73,151 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
           );
           return distance >= gridSize;
         });
-
-        if (isFarEnough) {
-          positions.push({ x, y });
-        }
+        if (isFarEnough) positions.push({ x, y });
       }
     }
-
     return positions;
   };
 
-  // Function to stop the timer
-  const stopTimer = () => {
-    if (timerInterval.current) {
-      clearInterval(timerInterval.current);
-      timerInterval.current = null;
-    }
-  };
-
-  // Function to start the timer
-  const startTimer = () => {
-    stopTimer(); // Clear any existing timer first
-
-    timerInterval.current = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev <= 1) {
-          // Time's up
-          stopTimer();
-          setGameActive(false);
-          setShowResultPopup(true);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  // Initial countdown before game starts
+  // Initial 3-2-1 countdown
   useEffect(() => {
     if (countdown > 0) {
       const id = setTimeout(() => setCountdown((prev) => prev - 1), 1000);
       return () => clearTimeout(id);
-    } else if (
-      countdown === 0 &&
-      !gameActive &&
-      !isPaused &&
-      resumeCountdown === 0
-    ) {
-      // Initial countdown finished, start the game and timer
-      setGameActive(true);
-      startTimer();
     }
+    setGameActive(true);
   }, [countdown]);
 
-  // Resume countdown effect
+  // ✅ Resume countdown tick — only runs when resumeCountdown > 0
   useEffect(() => {
-    if (resumeCountdown > 0) {
-      const id = setTimeout(() => setResumeCountdown((prev) => prev - 1), 1000);
-      return () => clearTimeout(id);
-    } else if (resumeCountdown === 0 && !gameActive && isPaused === false) {
-      // Resume countdown finished, restart the game and timer
+    if (resumeCountdown <= 0) return;
+    const id = setTimeout(() => setResumeCountdown((prev) => prev - 1), 1000);
+    return () => clearTimeout(id);
+  }, [resumeCountdown]);
+
+  // ✅ Re-activate game once resume countdown finishes (hits exactly 0)
+  useEffect(() => {
+    if (resumeCountdown === 0) {
       setGameActive(true);
-      startTimer();
     }
   }, [resumeCountdown]);
 
-  // Clean up timer when game becomes inactive
+  // 30s game timer — only ticks while gameActive and not paused
   useEffect(() => {
-    if (!gameActive) {
-      stopTimer();
+    if (gameActive && timeLeft > 0 && !isPaused) {
+      timerInterval.current = setInterval(() => {
+        setTimeLeft((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerInterval.current!);
+            setGameActive(false);
+            setShowResultPopup(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     }
-  }, [gameActive]);
+    return () => {
+      if (timerInterval.current) clearInterval(timerInterval.current);
+    };
+  }, [gameActive, isPaused]);
 
-  // Handle pause - stop timer and game
-  const handlePause = () => {
-    if (gameActive && !isPaused) {
-      stopTimer();
-      setIsPaused(true);
-      setShowPausePopup(true);
-      setGameActive(false);
-    }
-  };
-
-  // Handle resume - start countdown
-  const handleResume = () => {
-    setShowPausePopup(false);
-    setIsPaused(false);
-    setResumeCountdown(3);
-  };
-
-  // Handle item press (pop popcorn)
-  const handlePress = (item: Item) => {
-    if (!gameActive || isPaused || countdown > 0 || resumeCountdown > 0) return;
-
-    const newScore = score + 1;
-    setScore(newScore);
-
-    // Show message
-    setMessage(`Pop! ${newScore}`);
-    if (messageTimeout.current) {
-      clearTimeout(messageTimeout.current);
-    }
-    messageTimeout.current = setTimeout(() => {
-      setMessage("");
-    }, 600);
-
-    // Clear the timeout for this item
-    const timeoutId = itemTimeouts.current.get(item.id);
-    if (timeoutId) {
-      clearTimeout(timeoutId);
-      itemTimeouts.current.delete(item.id);
-    }
-
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-  };
-
-  // Handle item timeouts (auto-remove items after 2 seconds)
+  // Handle pause/resume for existing items on screen
   useEffect(() => {
-    if (!gameActive || isPaused || countdown > 0 || resumeCountdown > 0) return;
-
-    // Set up timeouts for existing items
-    items.forEach((item) => {
-      if (!itemTimeouts.current.has(item.id)) {
+    if (isPaused) {
+      itemTimeouts.current.forEach((id) => clearTimeout(id));
+    } else if (gameActive && !isPaused && items.length > 0) {
+      itemTimeouts.current.forEach((id) => clearTimeout(id));
+      itemTimeouts.current.clear();
+      items.forEach((item) => {
         const timeoutId = setTimeout(() => {
           setItems((prev) => prev.filter((i) => i.id !== item.id));
           itemTimeouts.current.delete(item.id);
         }, 2000);
         itemTimeouts.current.set(item.id, timeoutId);
-      }
-    });
-
-    return () => {
-      itemTimeouts.current.forEach((timeoutId) => {
-        clearTimeout(timeoutId);
       });
+    }
+    return () => {
+      itemTimeouts.current.forEach((id) => clearTimeout(id));
     };
-  }, [items, gameActive, isPaused, countdown, resumeCountdown]);
+  }, [isPaused, gameActive]);
 
-  // Spawn popcorns
+  // ✅ Spawn one popcorn at a time every 300ms
+  // ✅ Faster + randomized spawning
   useEffect(() => {
-    if (!gameActive || isPaused || countdown > 0 || resumeCountdown > 0) return;
+    if (!gameActive || isPaused || countdown > 0) return;
 
-    const spawnInterval = setInterval(() => {
+    const spawnOne = () => {
       setItems((currentItems) => {
         const availablePositions = getAvailableGridPositions(currentItems);
+        if (availablePositions.length === 0) return currentItems;
 
-        if (availablePositions.length === 0) {
-          return currentItems;
-        }
+        const randomIndex = Math.floor(
+          Math.random() * availablePositions.length,
+        );
+        const position = availablePositions[randomIndex];
+        const randomImage =
+          popcornImages[Math.floor(Math.random() * popcornImages.length)];
 
-        let updatedItems = [...currentItems];
-        const spawnCount = Math.min(4, availablePositions.length);
+        const newItem: Item = {
+          id: Date.now() + Math.random(), // avoid ID collision on double spawns
+          x: position.x,
+          y: position.y + 30,
+          image: randomImage,
+        };
 
-        for (let i = 0; i < spawnCount; i++) {
-          const randomIndex = Math.floor(
-            Math.random() * availablePositions.length,
-          );
-          const position = availablePositions.splice(randomIndex, 1)[0];
+        const timeoutId = setTimeout(() => {
+          setItems((prev) => prev.filter((item) => item.id !== newItem.id));
+          itemTimeouts.current.delete(newItem.id);
+        }, 1800); // disappear a bit faster too → more pressure
 
-          const randomImage =
-            popcornImages[Math.floor(Math.random() * popcornImages.length)];
-
-          const newItem: Item = {
-            id: Date.now() + i + Math.random(),
-            x: position.x,
-            y: position.y + 30,
-            image: randomImage,
-          };
-
-          updatedItems.push(newItem);
-        }
-
-        return updatedItems;
+        itemTimeouts.current.set(newItem.id, timeoutId);
+        return [...currentItems, newItem];
       });
-    }, 700);
+    };
 
-    return () => clearInterval(spawnInterval);
-  }, [gameActive, isPaused, countdown, resumeCountdown]);
+    const interval = setInterval(() => {
+      spawnOne();
 
-  // Reset game
+      // 40% chance to spawn a second one shortly after → unpredictable bursts
+      if (Math.random() < 0.4) {
+        setTimeout(spawnOne, 80);
+      }
+    }, 150); // base rate: one every 150ms
+
+    return () => clearInterval(interval);
+  }, [gameActive, isPaused, countdown]);
+
+  const handlePress = (item: Item) => {
+    if (!gameActive || isPaused || countdown > 0) return;
+    setScore((prev) => prev + 1);
+
+    if (messageTimeout.current) clearTimeout(messageTimeout.current);
+    messageTimeout.current = setTimeout(() => setMessage(""), 600);
+
+    const timeoutId = itemTimeouts.current.get(item.id);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      itemTimeouts.current.delete(item.id);
+    }
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
+  };
+
+  const handlePause = () => {
+    if (gameActive && !isPaused) {
+      setIsPaused(true);
+      setShowPausePopup(true);
+    }
+  };
+
+  const handleResume = () => {
+    setShowPausePopup(false);
+    setIsPaused(false);
+    setGameActive(false);
+    setResumeCountdown(3); // ✅ triggers the resume countdown
+  };
+
   const resetGame = () => {
-    stopTimer();
     setScore(0);
     setTimeLeft(30);
     setShowResultPopup(false);
@@ -266,37 +227,25 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
     setMessage("");
     setCountdown(3);
     setIsPaused(false);
-    setResumeCountdown(0);
-
-    itemTimeouts.current.forEach((timeoutId) => {
-      clearTimeout(timeoutId);
-    });
+    setResumeCountdown(-1); // ✅ reset to -1, not 0
+    if (timerInterval.current) clearInterval(timerInterval.current);
+    itemTimeouts.current.forEach((id) => clearTimeout(id));
     itemTimeouts.current.clear();
-
-    if (messageTimeout.current) {
-      clearTimeout(messageTimeout.current);
-    }
   };
 
-  // Home button press
   const handleHomePress = () => {
-    stopTimer();
-    itemTimeouts.current.forEach((timeoutId) => {
-      clearTimeout(timeoutId);
-    });
+    if (timerInterval.current) clearInterval(timerInterval.current);
+    itemTimeouts.current.forEach((id) => clearTimeout(id));
     itemTimeouts.current.clear();
-    if (messageTimeout.current) {
-      clearTimeout(messageTimeout.current);
-    }
+    if (messageTimeout.current) clearTimeout(messageTimeout.current);
     onBackToWelcome?.();
   };
 
   return (
     <ImageBackground
-      source={require("../../assets/images/background.png")}
+      source={require("../../assets/images/bgd.png")}
       style={styles.container}
     >
-      {/* Score */}
       <View style={styles.scoreContainer}>
         <Image
           source={require("../../assets/images/jesus.png")}
@@ -305,42 +254,36 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
         <Text style={styles.scoreText}>{score}</Text>
       </View>
 
-      {/* Timer & Controls */}
       <View style={styles.timerControlsContainer}>
         <TouchableOpacity style={styles.controlIcon} onPress={handlePause}>
           <Image
-            source={require("../../assets/images/pause.png")}
+            source={require("../../assets/images/pause1.png")}
             style={styles.iconImage}
           />
         </TouchableOpacity>
-
         <View style={styles.timerContainer}>
           <Text style={styles.timerText}>⏱️ {timeLeft}s</Text>
         </View>
-
         <TouchableOpacity style={styles.controlIcon} onPress={resetGame}>
           <Image
-            source={require("../../assets/images/retry.png")}
+            source={require("../../assets/images/retry1.png")}
             style={styles.iconImage}
           />
         </TouchableOpacity>
       </View>
 
-      {/* Initial Countdown */}
-      {countdown > 0 && resumeCountdown === 0 && (
+      {countdown > 0 && resumeCountdown <= 0 && (
         <View style={styles.countdownContainer}>
           <Text style={styles.countdownText}>{countdown}</Text>
         </View>
       )}
 
-      {/* Resume Countdown */}
       {resumeCountdown > 0 && (
         <View style={styles.countdownContainer}>
           <Text style={styles.countdownText}>{resumeCountdown}</Text>
         </View>
       )}
 
-      {/* POPCORN */}
       {items.map((item) => (
         <TouchableOpacity
           key={item.id}
@@ -351,29 +294,13 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
         </TouchableOpacity>
       ))}
 
-      {/* CHARACTER */}
-      <View style={styles.characterContainer}>
-        {message !== "" && (
-          <View style={styles.bubble}>
-            <Text style={styles.bubbleText}>{message}</Text>
-          </View>
-        )}
-
-        <Image
-          source={require("../../assets/images/character1.png")}
-          style={styles.character}
-        />
-      </View>
-
-      {/* Home Button at Bottom */}
       <TouchableOpacity style={styles.homeButton} onPress={handleHomePress}>
         <Image
-          source={require("../../assets/images/home.png")}
+          source={require("../../assets/images/home1.png")}
           style={styles.homeIcon}
         />
       </TouchableOpacity>
 
-      {/* Pause Popup Modal */}
       <Modal
         transparent={true}
         visible={showPausePopup}
@@ -391,7 +318,6 @@ export default function GameScreen({ onBackToWelcome }: GameScreenProps) {
         </View>
       </Modal>
 
-      {/* Result Popup Modal */}
       <Modal
         transparent={true}
         visible={showResultPopup}
