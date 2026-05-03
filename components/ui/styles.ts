@@ -23,20 +23,6 @@ export const styles = StyleSheet.create({
     resizeMode: "contain",
   },
 
-  characterContainer: {
-    position: "absolute",
-    bottom: 99,
-    alignSelf: "center",
-    alignItems: "center",
-    marginLeft: 22,
-  },
-
-  character: {
-    width: 110,
-    height: 110,
-    resizeMode: "contain",
-  },
-
   bubble: {
     backgroundColor: "white",
     padding: 8,
@@ -202,13 +188,13 @@ export const styles = StyleSheet.create({
 
   homeButton: {
     position: "absolute",
-    bottom: 20,
+    bottom: 15,
     alignSelf: "center",
     //backgroundColor: "rgba(0,0,0,0.6)",
     borderRadius: 30,
     padding: 12,
     zIndex: 100,
-    marginRight: 157,
+    marginRight: 260,
   },
 
   homeIcon: {
